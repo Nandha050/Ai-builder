@@ -1,90 +1,118 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Sidebar from "../components/Sidebar";
 import ChatMessage from "../components/ChatMessage";
 import ChatInput from "../components/ChatInput";
 import AgentStatus from "../components/AgentStatus";
-import { createTask,fetchTasks, fetchTaskById } from "../api/taskApi";
-import TaskResult from "../components/TaskResult";
+import AgentTimeline from "../components/AgentTimeline";
+import { fetchTasks, fetchTaskById, createTask } from "../api/taskApi";
+import React from "react";
+
 
 export default function Chat() {
   const [tasks, setTasks] = useState([]);
   const [activeTask, setActiveTask] = useState(null);
   const [messages, setMessages] = useState([]);
+
   const pollingRef = useRef(null);
-const [hasFinalResponse, setHasFinalResponse] = useState(false);
 
   useEffect(() => {
     loadTasks();
-    return () => stopPolling();
+    return () => clearInterval(pollingRef.current);
   }, []);
 
-  // 🔄 Load task list
   const loadTasks = async () => {
     const res = await fetchTasks();
     setTasks(res.data);
   };
 
-  // 🛑 Stop polling safely
-  const stopPolling = () => {
-    if (pollingRef.current) {
-      clearInterval(pollingRef.current);
-      pollingRef.current = null;
-    }
-  };
-
-  // 🔁 Poll task status
- const pollTaskStatus = (taskId) => {
-  if (polling) return;
-
-  setPolling(true);
-  setHasFinalResponse(false);
+  // 🔁 POLLING
+const pollTaskStatus = (taskId) => {
+  if (!taskId) return;
 
   const interval = setInterval(async () => {
-    const res = await fetchTaskById(taskId);
-    setActiveTask(res.data);
+    try {
+      const res = await fetchTaskById(taskId);
+      setActiveTask(res.data);
 
-    if (
-      res.data.task.status === "completed" &&
-      !hasFinalResponse
-    ) {
-      setHasFinalResponse(true);
-
-      setMessages((prev) => [
-        ...prev.filter(m => m.role !== "assistant" || m.content !== "Processing your task..."),
-        {
-          role: "assistant",
-          content: res.data.task.result_summary || "Task completed."
-        }
-      ]);
-
+      if (res.data.task.status === "completed") {
+        setMessages((prev) => [
+          ...prev.filter(m => m.content !== "Processing your task..."),
+          {
+            role: "assistant",
+            content: res.data.task.result_summary || "Task completed."
+          }
+        ]);
+        clearInterval(interval);
+        loadTasks();
+      }
+    } catch (err) {
+      console.error("Polling failed", err);
       clearInterval(interval);
-      setPolling(false);
-      loadTasks();
     }
   }, 2000);
 };
 
 
-  // 🚀 When user submits prompt
- const handleNewTask = async (prompt, files) => {
-  
-  // 1️⃣ Show user message immediately
-  setMessages((prev) => [
-    ...prev,
-    { role: "user", content: prompt },
+
+
+
+  // 🚀 NEW TASK
+
+const handleNewTask = async (payload) => {
+  setMessages([
+    { role: "user", content: payload.prompt },
     { role: "assistant", content: "Processing your task..." }
   ]);
 
-  // 2️⃣ CREATE TASK IN BACKEND
-const res = await createTask(prompt, files);  
-const task = res.data.task;
+  try {
+    const res = await createTask(payload);
+    const createdTask = res.data.task;
 
-  // 3️⃣ Set active task
-  setActiveTask(task);
+    const taskId = createdTask?.id || createdTask?._id;
 
-  // 4️⃣ Start polling
-  pollTaskStatus(task.id);
+    if (!taskId) {
+      console.error("Backend response:", res.data);
+      throw new Error("Task ID missing");
+    }
+
+    pollTaskStatus(taskId);
+  } catch (err) {
+    console.error(err);
+    setMessages((prev) => [
+      ...prev,
+      { role: "assistant", content: "❌ Failed to start task." }
+    ]);
+  }
 };
+
+const streamTaskOutput =  (taskId) => {
+  const eventSource = new EventSource(
+    `http://localhost:5000/api/tasks/${taskId}/stream`
+  );
+
+  eventSource.onmessage = (event) => {
+    if (event.data === "[DONE]") {
+      eventSource.close();
+      return;
+    }
+
+    const chunk = JSON.parse(event.data);
+
+    setMessages((prev) => {
+      const last = prev[prev.length - 1];
+      if (last.role === "assistant") {
+        return [
+          ...prev.slice(0, -1),
+          { ...last, content: last.content + chunk }
+        ];
+      }
+      return prev;
+    });
+  };
+};
+
+
+
 
   return (
     <div className="flex h-screen">
@@ -92,6 +120,7 @@ const task = res.data.task;
         tasks={tasks}
         onSelect={(task) => {
           setActiveTask(task);
+
           setMessages([
             { role: "user", content: task.userPrompt },
             {
@@ -110,14 +139,13 @@ const task = res.data.task;
       />
 
       <div className="flex-1 flex flex-col bg-gray-50">
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-6 space-y-3">
           {messages.map((m, i) => (
-            <ChatMessage key={i} role={m.role} content={activeTask && <TaskResult task={activeTask} />}
- />
+            <ChatMessage key={i} role={m.role} content={m.content} />
           ))}
 
           {activeTask?.subtasks && (
-            <AgentStatus subtasks={activeTask.subtasks} />
+<AgentTimeline subtasks={activeTask.subtasks} />
           )}
         </div>
 

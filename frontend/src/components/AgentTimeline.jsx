@@ -7,24 +7,37 @@ const STATUS_COLOR = {
 
 export default function AgentTimeline({ subtasks }) {
   return (
-    <div className="bg-gray-900 border border-gray-700 rounded-xl p-4">
-      <h3 className="text-sm font-semibold text-gray-300 mb-4">
-        Agent Progress
-      </h3>
+    <div className="mt-4 space-y-3">
+      {subtasks.map((s) => (
+        <div
+          key={s._id}
+          className="flex items-center gap-3 bg-white rounded-lg p-3 shadow-sm"
+        >
+          {/* Status Dot */}
+          <span
+            className={`w-3 h-3 rounded-full ${
+              s.status === "completed"
+                ? "bg-green-500"
+                : s.status === "running"
+                ? "bg-blue-500 animate-pulse"
+                : s.status === "failed"
+                ? "bg-red-500"
+                : "bg-gray-300"
+            }`}
+          />
 
-      <div className="space-y-3">
-        {subtasks.map((s) => (
-          <div key={s._id} className="flex items-center gap-3">
-            <span className={`w-3 h-3 rounded-full ${STATUS_COLOR[s.status]}`} />
-            <span className="capitalize text-gray-200">
-              {s.agent_type}
-            </span>
-            <span className="ml-auto text-xs text-gray-400">
-              {s.status}
-            </span>
+          {/* Agent Info */}
+          <div className="flex-1">
+            <div className="font-medium capitalize">{s.agent_type}</div>
+            <div className="text-xs text-gray-500">{s.description}</div>
           </div>
-        ))}
-      </div>
+
+          {/* Status Text */}
+          <span className="text-xs capitalize text-gray-600">
+            {s.status}
+          </span>
+        </div>
+      ))}
     </div>
   );
 }

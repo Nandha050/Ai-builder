@@ -10,6 +10,7 @@ const {
 const { protect } = require("../middlewares/auth.middleware");
 // backend/src/routes/task.routes.js
 const upload = require("../middlewares/upload");
+const { streamTask } = require("../controllers/task.controller");
 
 router.post(
   "/",
@@ -19,8 +20,10 @@ router.post(
 );
 
 
+
 router.post("/", protect, createTask);
 router.get("/", protect, getTasks);
+router.get("/tasks/:id/stream", streamTask);
 router.get("/:id", protect, getTaskById);
 
 module.exports = router;

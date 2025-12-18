@@ -15,26 +15,11 @@ exports.createTask = async (req, res) => {
     const prompt = req.body.prompt;
     const files = req.files || [];
 
-    // ✅ Extract file text
-    const extractedText = await parseFiles(files);
-
-    if (!prompt && !extractedText) {
-      return res.status(400).json({ message: "Prompt or file required" });
+    if (!prompt) {
+      return res.status(400).json({ message: "Prompt is required" });
     }
 
-    // ✅ Combine content for AI
-    const aiInput = `
-USER PROMPT:
-${prompt}
-
-FILE CONTENT:
-${extractedText}
-`;
-
-    // 🔹 Planner only classifies task
-    const { task_type, title } = await runTaskPlanner({
-      prompt: aiInput
-    });
+    const { task_type, title } = await runTaskPlanner({ prompt });
 
     const plan = createPlanFromType(task_type);
 
@@ -43,7 +28,7 @@ ${extractedText}
       title,
       task_type,
       userPrompt: prompt,
-      input_context: extractedText,
+      hasFiles: files.length > 0,
       status: "running"
     });
 
@@ -58,20 +43,23 @@ ${extractedText}
     await Subtask.insertMany(subtasks);
     await runTaskOrchestrator(task._id);
 
-    res.status(202).json({
-      task: {
-        id: task._id,
-        title,
-        task_type,
-        status: task.status
-      }
-    });
+   res.status(202).json({
+  task: {
+    id: task._id.toString(),
+    _id: task._id.toString(),
+    title,
+    task_type,
+    status: task.status
+  }
+});
 
-  } catch (error) {
-    console.error("TASK CREATE ERROR:", error);
-    res.status(400).json({ message: error.message });
+
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ message: err.message });
   }
 };
+
 
 
 // GET /api/tasks
@@ -103,4 +91,30 @@ exports.getTaskById = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
+
+exports.streamTask = async (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+
+  const taskId = req.params.id;
+
+  const interval = setInterval(async () => {
+    const task = await Task.findById(taskId);
+
+    if (!task) return;
+
+    if (task.result_chunks?.length) {
+      const lastChunk = task.result_chunks.slice(-1)[0];
+      res.write(`data: ${JSON.stringify(lastChunk)}\n\n`);
+    }
+
+    if (task.status === "completed") {
+      res.write(`data: [DONE]\n\n`);
+      clearInterval(interval);
+      res.end();
+    }
+  }, 800);
+};
+
 
